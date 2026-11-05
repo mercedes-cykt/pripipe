@@ -59,19 +59,36 @@ rootAA      -           -           rootAA.bam  root
 
 ```
 out/
-├── catalog/transcripts.gtf
-├── pri/pri_mirna.tsv
-├── pri/pri_expression_tpm.tsv
-├── pri/pri_expression_counts.tsv
-├── qc/flagstat_summary.tsv
-├── qc/validation.json
-└── manifest.json
+├── catalog/transcripts.gtf        # 过滤 + 去冗余后的 catalog
+├── catalog/transcripts.raw.gtf    # 过滤前的原始 catalog（留档）
+├── catalog/meta.json              # provenance + 过滤/去重统计
+├── catalog/filter_stats.json      # 同上，独立文件
+├── catalog/dropped.tsv            # 被删转录本 + 原因
+├── catalog/flags.tsv              # 保留但标记（超长单外显子 / >50 kb）
+├── catalog/collapsed.tsv          # 去重成员 → 代表
+├── pri/pri_mirna.tsv              # 主表：一行一个 pri-miRNA 位点
+├── pri/pri_pairs.tsv              # 证据表：一行一个 hairpin×transcript 对
+├── pri/pri_expression_tpm.tsv     # 位点 × 样本 TPM（+ group 均值）
+├── pri/pri_expression_counts.tsv  # 同上（仅 BAM 时为 NA）
+├── qc/validation.json, flagstat_summary.tsv, rna/fastp_summary.tsv
+└── manifest.json                  # 输入 md5/参数/工具版本/阶段统计
 ```
 
-`pri_mirna.tsv` 列：`schema_version, locus_id, hairpin_id, chrom, hp_start, hp_end, strand,
-hp_length, transcript_id, transcript_source, transcript_start, transcript_end, exon_count,
-anchor_type, flank_5p, flank_3p, evidence_level, n_isoforms, n_samples_support,
-genomic_env, class_code, expr_backend, pri_sum_tpm, pri_max_tpm, pri_sum_counts, n_fl`
+`pri_mirna.tsv`（29 列，检测到 group 时更多）：
+
+```
+schema_version, locus_id, chrom, hp_start, hp_end, strand, hp_length,
+n_transcripts, n_structures, n_spliced, n_intronic, n_partial, anchor_type, transcripts,
+sources, evidence_level, flank_5p_max, flank_3p_max, genomic_env, class_code,
+n_intermediates, n_fl, expr_backend, pri_sum_tpm, pri_sum_tpm_max,
+pri_sum_tpm_max_sample, n_samples_detected, tpm_<group>..., pri_sum_counts
+```
+
+- `anchor_type`：该位点的主导类型（spliced / intronic / partial），逐对明细看 `pri_pairs.tsv`
+- `genomic_env`：相对参考注释同链判定（genic-exonic / genic-intronic / intergenic）
+- `evidence_level`：`L1_iso`（有 Iso-Seq 支持）/ `L2_rnaseq` / `L3_annotation`
+- `n_samples_detected`：`pri_sum_tpm ≥ 1` 的样本数
+- `class_code`：SQANTI3 `*classification.txt` 的 structural_category，多位点用 `/` 连接
 
 ## 4. 校验闸门（`pripipe validate`）
 
@@ -102,3 +119,15 @@ genomic_env, class_code, expr_backend, pri_sum_tpm, pri_max_tpm, pri_sum_counts,
 | MAPQ 过滤启发式 | 仅当 sampled ≥ 5000 时启用 | 全 0 或全非 0 各一条 warning |
 | 染色体命名不全匹配 | warning | 支持近缘物种映射 |
 | unmapped reads = 0 | warning | 定量分母截断 |
+
+### 6.1 catalog 过滤与去重（2026-11-05 用花+叶 6 库校准）
+
+| 判据 | 取值 | 语义 |
+|---|---|---|
+| `--min/max-transcript-length` | 200 / 100,000 bp | 超出即丢弃并记入 `dropped.tsv` |
+| `--max-mono-exon-span` | 10,000 bp | 单外显子超长只标记 |
+| `--flag-transcript-length` | 50,000 bp | 超长只标记（实测 270 条） |
+| `--drop-classes` | `fusion` | SQANTI3 类别黑名单（实测仅 0.2%） |
+| `--dedup` | `structural` | 同外显子链 + TSS/PAS 容差聚类，保留最长 |
+| `--dedup-tss/pas-tolerance` | 100 bp | 由折叠曲线拐点定（1.8%→5.6%→7.3%） |
+| `--fastp-clean` | 开 | 原始 FASTQ 先清洗；`--no-fastp-clean` 用于已清洗数据 |
