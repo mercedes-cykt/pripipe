@@ -1,0 +1,2 @@
+sample_id	r1	r2	group
+test1	testdata/rna_1.fq.gz	testdata/rna_2.fq.gz	test

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pripipe"
+dynamic = ["version"]
+description = "Plant pri-miRNA annotation from Iso-Seq and/or RNA-Seq"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-only" }
+authors = [{ name = "zhaojw" }]
+keywords = ["miRNA", "pri-miRNA", "Iso-Seq", "RNA-Seq", "plant", "bioinformatics"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: POSIX :: Linux",
+]
+# heavy lifting is done by external tools; keep the Python side light
+dependencies = ["pysam>=0.21"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+pripipe = "pripipe.cli:main"
+
+[tool.setuptools]
+packages = ["pripipe", "pripipe.stages", "pripipe.tests"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pripipe.__version__" }

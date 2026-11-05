@@ -1,0 +1,17 @@
+{
+  "built": "2026-11-05",
+  "window": "Chr02:19354885-21754984",
+  "genome_mb": 2.43,
+  "hairpins": 4,
+  "iso_transcripts": 115,
+  "rna_pairs": 1208,
+  "ci": {
+    "loci": 1,
+    "pairs": 1,
+    "spliced": 0,
+    "intronic": 1,
+    "quant_backend": "kallisto",
+    "pri_columns": 28,
+    "runtime_seconds": 17.5
+  }
+}

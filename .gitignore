@@ -1,0 +1,25 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+
+# pripipe run artefacts
+ci_out/
+pripipe_out/
+results/
+tmp/
+*.done
+
+# tool logs / scratch
+*.log
+fastp.html
+fastp.json
+nohup.out
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/
