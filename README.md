@@ -1,198 +1,231 @@
 # pripipe
 
-从 **Iso-Seq 和/或 RNA-Seq** 出发，输出植物 **pri-miRNA 注释**：哪些转录本是某个 pre-miRNA 的初级转录本、属于哪种结构类型、支持证据有多强；有 RNA-Seq 时同时给出位点级表达。
+**pripipe** annotates plant **pri-miRNA** transcripts from Iso-Seq and/or RNA-Seq data.
+For every pre-miRNA in a supplied BED file it reports which assembled transcripts
+contain the hairpin, how those transcripts are structured, and — when RNA-Seq is
+available — how strongly each locus is expressed.
 
 ```
-Iso-Seq ─┐
-         ├─→ 转录本 catalog ─→ 挂靠(pre-miRNA × 转录本) ─→ pri-miRNA 注释 + 表达
-RNA-Seq ─┘                            ↑
-                              pre-miRNA BED6
+Iso-Seq (subreads / CCS / FLNC / hq) ─┐
+                                      ├─→ transcript catalog ─→ anchoring ─→ pri-miRNA loci
+RNA-Seq (FASTQ or BAM) ───────────────┘            ↑
+                                          pre-miRNA BED6
 ```
 
-## 它做什么 / 不做什么
+## Contents
 
-**做**：Iso-Seq 上游处理、RNA-Seq 比对与组装、转录本 catalog、pre-miRNA 挂靠（spliced / intronic / 中间体）、位点级表达定量、可复现的 manifest。
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Inputs](#inputs)
+- [Common options](#common-options)
+- [Outputs](#outputs)
+- [Resuming and reusing runs](#resuming-and-reusing-runs)
+- [Reproducibility](#reproducibility)
+- [Runtime](#runtime)
+- [License](#license)
 
-**不做**：miRNA 位点鉴定（不调用 miRDeep-P2，位点由输入 BED 决定）、PEI/isomiR/进化等下游分析。miRNA 注释的质量决定本工具的上限。
+## Requirements
 
-## 安装
+Python ≥ 3.10 with `pysam`. The heavy lifting is done by external tools, which must
+be on `PATH`:
+
+| Stage | Tools |
+|---|---|
+| Iso-Seq | `ccs`, `lima`, `isoseq3`, `minimap2`, `samtools` |
+| RNA-Seq | `fastp`, `hisat2`, `samtools` |
+| Assembly | `stringtie` ≥ 3.0 |
+| Catalog | `SQANTI3`, `gffread`, `gffcompare` |
+| Collapse | `isoseq3 collapse` or Cupcake (`collapse_isoforms_by_sam.py`) |
+| Quantification | `kallisto` (FASTQ) or `stringtie -e -B` (BAM) |
+| Intervals | `bedtools` |
+
+`SQANTI3` is a mandatory dependency; it is called from its source directory
+(`--sqanti3-dir`) rather than from `PATH`.
+
+A tested environment specification is provided in `env/`:
+
+```
+env/environment.yml      # rebuild by name
+env/spec-explicit.txt    # exact pins, recommended for reproducibility
+env/verify_env.sh        # self-check, prints ALL PASS when everything is wired up
+```
+
+## Installation
 
 ```bash
-# 方式 A：按环境名重建（可能解出更新版本）
+git clone https://github.com/mercedes-cykt/pripipe.git
+cd pripipe
+
 conda env create -f env/environment.yml
-
-# 方式 B：逐包精确复现（推荐）
-conda create -n pri-miRNA-pipe --file env/spec-explicit.txt
-
 conda activate pri-miRNA-pipe
-bash env/verify_env.sh        # 期望输出 ALL PASS
+bash env/verify_env.sh
+
+pip install -e .          # provides the `pripipe` command
+pripipe --version
 ```
 
-关键依赖：`ccs / lima / isoseq3 / minimap2 / samtools / hisat2 / fastp / stringtie>=3 / gffcompare / gffread / kallisto / bedtools / pysam`，外加 **SQANTI3**（源码目录，必选）与 **Cupcake**（`collapse_isoforms_by_sam.py`，`--collapse-strategy cupcake` 时需要）。版本与路径见 `env/README.md`。
+Activate the environment before running. External tools invoked through
+`/bin/sh` (for example `gffread` inside SQANTI3) are only visible once the
+environment is active.
 
-> **必须 `conda activate`**，或至少用该环境的解释器启动：SQANTI3 内部用 `/bin/sh` 调 `gffread`，只改 PATH 不激活会报 `gffread: not found`。
+## Quick start
 
-## 快速开始
-
-```bash
-pripipe run \
-  --genome Sta_v4.fasta \
-  --mirna-bed mirna_pre.bed \
-  --gtf Sta.gtf \
-  --iso flnc.bam --iso-type flnc \
-  --rna samples.tsv \
-  --out results/ --threads 32
-```
-
-先跑自带的迷你数据集（约 20 秒）：
+A small end-to-end dataset ships in `testdata/` (a 2.4 Mb genome slice):
 
 ```bash
 bash ci/run_ci.sh
 ```
 
-## 输入
+A typical run on real data:
 
-### 必需
+```bash
+pripipe run \
+  --genome  Sta_v4.fasta \
+  --mirna-bed mirna_pre.bed \
+  --gtf     Sta.gtf \
+  --iso     flnc.bam --iso-type flnc \
+  --rna     samples.tsv \
+  --out     results/ \
+  --threads 32
+```
 
-| 输入 | 说明 |
+Inputs are validated first; the run stops with a non-zero exit code if a gate
+fails. Use `pripipe validate` to check inputs without running anything.
+
+## Inputs
+
+### Required
+
+| Input | Description |
 |---|---|
-| `--genome` FASTA | 参考基因组；`.fai` 缺失会 `samtools faidx` 自动生成 |
-| `--mirna-bed` BED6 | pre-miRNA 位点：`chrom start end name score strand`。`name` 必须唯一（下游主键），`strand` 必须是 `+/-`；坐标 0-based 半开 |
-| `--iso` 或 `--rna` | 至少一个测序数据来源 |
+| `--genome` | Reference genome FASTA. A `.fai` index is created automatically when missing. |
+| `--mirna-bed` | pre-miRNA loci in BED6: `chrom start end name score strand`. Coordinates are 0-based half-open; `name` must be unique (it is the downstream key) and `strand` must be `+` or `-`. |
+| `--iso` and/or `--rna` | At least one sequencing input. |
 
-### 建议
+### Optional
 
-| 输入 | 缺失后果 |
+| Input | Effect when omitted |
 |---|---|
-| `--gtf` | 无 `class_code`、无 `genic/intergenic` 标注、非链特异数据的链继承变弱（会告警） |
+| `--gtf` | No `class_code`, no `genic`/`intergenic` annotation, weaker strand inheritance for unstranded libraries. A warning is emitted. |
 
-### Iso-Seq：`--iso-type` 决定从哪里开始
+### Iso-Seq
 
-| `--iso-type` | 工具要做的 | 额外要求 |
+`--iso-type` selects the entry point:
+
+| `--iso-type` | Steps performed | Extra requirement |
 |---|---|---|
-| `subreads`（默认） | ccs → lima → refine → cluster2 | **`--iso-primers`** |
-| `ccs` | lima → refine → cluster2 | **`--iso-primers`** |
+| `subreads` (default) | ccs → lima → refine → cluster2 | `--iso-primers` |
+| `ccs` | lima → refine → cluster2 | `--iso-primers` |
 | `flnc` | cluster2 | — |
-| `hq` | 直接比对（已聚类/去冗余） | — |
+| `hq` | alignment only (already clustered) | — |
 
-之后统一：`minimap2 -ax splice:hq` → collapse（`cupcake` 或 `isoseq3`）→ `gffread -T`。
+All paths continue with `minimap2 -ax splice:hq`, redundancy removal and
+`gffread -T`. Multiple `--iso` files are concatenated, so multi-cell libraries
+can be passed directly.
 
-多 SMRT Cell 直接给多个 `--iso` 文件，会先 `samtools cat` 合并。
+### RNA-Seq
 
-### RNA-Seq：`--rna` 样本清单
-
-必须有表头，列名固定：
+`--rna` takes a TSV sample sheet with a header:
 
 ```
-sample_id   r1              r2              bam         group
-flowerAA    f1.fq.gz        f2.fq.gz        -           flower
-rootAA      -               -               rootAA.bam  root
-mix01       m1.fq.gz        m2.fq.gz        mix01.bam   mix
+sample_id   r1          r2          bam         group
+flowerAA    f1.fq.gz    f2.fq.gz    -           flower
+rootAA      -           -           rootAA.bam  root
+mix01       m1.fq.gz    m2.fq.gz    mix01.bam   mix
 ```
 
-- `r1` 与 `bam` 至少给一个；**两者都给** = BAM 用于组装、FASTQ 用于 kallisto 定量；
-- 单端：`r2` 写 `-`；
-- `group` 缺失会告警，只输出 per-sample 列。
+- at least one of `r1` and `bam` is required per row;
+- supplying both means the BAM is used for assembly and the FASTQ for quantification;
+- single-end runs put `-` in `r2`;
+- `group` is optional and enables per-group means.
 
-### 判据参数（都有默认值）
+## Common options
 
-| 参数 | 默认 | 含义 |
+| Option | Default | Description |
 |---|---|---|
-| `--extend-hairpin` | 0 | 挂靠前把发夹扩 N bp（边界容差） |
-| `--min-flank` | 50 | 侧翼短于 N bp 只**标记**，不丢弃 |
-| `--allow-partial` | off | 是否报告只部分覆盖发夹的转录本 |
-| `--multi-hairpin` | per-hairpin | 一个转录本含多个发夹时怎么记 |
+| `--iso-type` | `subreads` | Iso-Seq entry point (see above) |
+| `--collapse-strategy` | `cupcake` | Redundancy removal: `cupcake` or `isoseq3` |
+| `--iso-singletons` / `--no-iso-singletons` | on | Keep FLNC reads that cannot be clustered. Higher recall with singletons on; stricter consensus with them off. |
+| `--quant-backend` | `auto` | `auto` selects `kallisto` when FASTQ is present and `stringtie -e -B` otherwise |
+| `--no-quant` | — | Annotation only, skip quantification |
+| `--extend-hairpin` | 0 | Grow each hairpin by N bp before anchoring (boundary tolerance) |
+| `--min-flank` | 50 | Flag transcripts with less than N bp flanking the hairpin (flagged, never dropped) |
+| `--allow-partial` | off | Also report transcripts that cover the hairpin only partially |
+| `--threads` | 8 | Threads passed to the external tools |
+| `--from` / `--to` | — | Restrict the run to a range of stages |
+| `--existing-catalog` | — | Reuse a finished SQANTI3 output directory |
 
-## 输出
+`pripipe run --help` lists every option with its default.
+
+Stages, in order: `iso → rna → assemble → catalog → anchor → quant → report`.
+Stages that do not apply to the given inputs are skipped automatically.
+
+## Outputs
 
 ```
 results/
-├── iso/          # 上游转录本模型（work/ 里保留中间文件）
-├── rna/          # BAM、strandness.txt
-├── assemble/     # 逐样本 StringTie + merged
-├── catalog/      # transcripts.gtf + meta.json（provenance）+ fl_counts.tsv
-├── anchor/       # anchor_pairs.tsv / anchor_loci.tsv / intermediates.tsv / stats.json
-├── quant/        # 位点 × 样本 TPM / counts
+├── catalog/     transcripts.gtf, meta.json, fl_counts.tsv
+├── anchor/      anchor_pairs.tsv, anchor_loci.tsv, intermediates.tsv, anchor_stats.json
+├── quant/       per-sample quantification and matrices
 ├── pri/
-│   ├── pri_mirna.tsv           # 主表：一行一个 pri-miRNA 位点
-│   ├── pri_pairs.tsv           # 证据明细：一行一个 发夹×转录本 对
+│   ├── pri_mirna.tsv              one row per pri-miRNA locus
+│   ├── pri_pairs.tsv              one row per hairpin x transcript pair
 │   ├── pri_expression_tpm.tsv
 │   └── pri_expression_counts.tsv
-├── qc/           # flagstat_summary.tsv、validation.json
-└── manifest.json # 输入/参数/工具版本/阶段统计 —— 复现的最小闭环
+├── qc/          validation.json, flagstat_summary.tsv
+└── manifest.json
 ```
 
-`pri_mirna.tsv` 主要列：
+`pri_mirna.tsv` key columns:
 
-| 列 | 含义 |
+| Column | Meaning |
 |---|---|
-| `locus_id` | pre-miRNA 名（来自 BED） |
-| `n_transcripts` / `n_spliced` / `n_intronic` | 支持证据的构成 |
-| `anchor_type` | 该位点的主导类型 |
-| `evidence_level` | `L1_iso`（有 Iso-Seq）/ `L2_rnaseq` / `L3_annotation` |
-| `genomic_env` | `genic-exonic` / `genic-intronic` / `intergenic`（需 `--gtf`） |
-| `class_code` | SQANTI3 的 structural_category |
-| `n_intermediates` | 加工中间体条数 |
-| `pri_sum_tpm` / `pri_max_tpm` / `tpm_<group>` | 位点级表达（有 RNA-Seq 时） |
+| `locus_id` | pre-miRNA name from the BED file |
+| `n_transcripts`, `n_spliced`, `n_intronic` | supporting evidence |
+| `anchor_type` | dominant structure of the locus |
+| `evidence_level` | `L1_iso`, `L2_rnaseq` or `L3_annotation` |
+| `genomic_env` | `genic-exonic`, `genic-intronic`, `intergenic` or `unknown` |
+| `class_code` | SQANTI3 structural category |
+| `n_intermediates` | processing intermediates observed at the locus |
+| `pri_sum_tpm`, `pri_max_tpm`, `tpm_<group>` | locus-level expression (RNA-Seq runs only) |
 
-## 两套基线（同一份数据、同参数，只差 singleton）
+`intermediates.tsv` lists transcripts whose end stops at a hairpin boundary,
+i.e. 5' or 3' remnants of processing.
 
-| 模式 | 参数 | 位点 | 用途 |
-|---|---|---|---|
-| 宽松（默认） | — | 69 | 发现新 pri，高召回 |
-| 严格 | `--no-iso-singletons` | 38 | 与历史结果对齐、投稿复现 |
+## Resuming and reusing runs
 
-`--iso-singletons`（默认开）会保留无法聚类的单条 FLNC；它们既贡献低丰度 pri，也带来"只有 1 条转录本支持"的低证据位点。需要严格口径时关掉即可。
-
-## 断点续跑
-
-每个阶段成功后写 `<stage>/<stage>.done`，重跑自动跳过：
+Each stage writes `<stage>/<stage>.done`; rerunning skips completed stages.
 
 ```bash
-pripipe run ... --from catalog --to report   # 只重算挂靠与报表
+# recompute anchoring and reporting only
+pripipe run ... --from catalog --to report
+
+# reuse an existing SQANTI3 run
 pripipe run ... --existing-catalog sqanti3_out --catalog-sources iso
 ```
 
-## 常见坑（都是实测踩过的）
+## Reproducibility
 
-1. **`subreads`/`ccs` 忘了 `--iso-primers`** —— validate 阶段直接报错，不用等到 lima。
-2. **`lima` 输出不是裸前缀** —— 它会写 `<prefix>.<primer5p>--<primer3p>.bam`，工具已自动收集/合并。
-3. **`isoseq3 refine` 是三参数** —— `<demux.bam> <primers.fasta> <flnc.bam>`。
-4. **`cluster2` 默认丢 singleton** —— 低丰度 isoform 会被砍掉，用 `--iso-singletons` 控制。
-5. **Cupcake 的比对参数是 `-s SAM`** —— 不是 `-b BAM`，工具内部自动转 SAM。
-6. **BAM 必须剪接感知** —— CIGAR 无 `N` 会被判错（`subreads`/`ccs`/`flnc` 是原始 reads，不做此检查）。
-7. **BED 带 UTF-8 BOM** —— Windows 生成的文件常见，工具已按 `utf-8-sig` 读取。
-8. **`/tmp` 禁用** —— 临时文件走 `--tmp-dir`。
+`manifest.json` records the input paths and sizes, every parameter, the stage
+statistics, the validation warnings and the tool versions (including
+`git describe` of the SQANTI3 checkout). Together with the versioned environment
+in `env/` it is sufficient to reproduce a run.
 
-## 开发
+`pri_mirna.tsv` carries a `schema_version` column so that tables from different
+releases can be told apart.
 
-```
-pripipe/
-├── cli.py        # 命令行
-├── config.py     # 参数、阶段表、断点
-├── models.py     # Hairpin / Transcript / AnchorPair / Intermediate
-├── validate.py   # 七道输入闸门
-├── stages/       # iso, rna, assemble, catalog, anchor, quant, report
-├── utils.py      # 子进程 PATH 注入
-├── tests/        # 回归夹具（anchor 复现 41/60/9/51）
-├── testdata/     # 2.4 Mb 切片 + 4 发夹 + 115 转录本 + 1208 对 reads
-└── ci/run_ci.sh  # 端到端冒烟（~20 s，7 项断言）
-```
+## Runtime
 
-回归测试：
+| Dataset | Resources | Wall time |
+|---|---|---|
+| `testdata/` (2.4 Mb slice, 115 transcripts, 1,208 read pairs) | 8 threads | ~20 s |
+| Iso-Seq FLNC library, 46k FLNC reads, with Cupcake collapse | 24 threads | ~13 min |
 
-```bash
-python3 -m pripipe.tests.repro_anchor --catalog <corrected.gtf> --bed <mirna.bed> \
-    --span-raw <span_raw.tsv> --spliced-raw <spliced_raw.tsv> --out check/
-# 期望：RESULT: MATCH（41 位点 / 60 对 / spliced 9 / intronic 51）
-```
+Iso-Seq runs that start from raw subreads are dominated by `ccs`.
 
-## 许可
+## License
 
-GNU General Public License v3.0（见 `LICENSE`）。Copyright (C) 2026 mercedes-cykt <mrcdes@163.com>。
+GNU General Public License v3.0. See [LICENSE](LICENSE).
 
-商用或闭源集成需另行联系作者授权；学术使用请引用本仓库。
-
-## 状态
-
-**v1.0.1**。四个 `--iso-type` 分支都已在真实数据上跑通；schema 版本 `1.0`。详见 `SPEC.md`（设计契约）与 `env/README.md`（环境）。
+Copyright (C) 2026 mercedes-cykt &lt;mrcdes@163.com&gt;
