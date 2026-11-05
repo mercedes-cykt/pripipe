@@ -1,5 +1,7 @@
 # pripipe
 
+[![CI](https://github.com/mercedes-cykt/pripipe/actions/workflows/ci.yml/badge.svg)](https://github.com/mercedes-cykt/pripipe/actions/workflows/ci.yml)
+
 **pripipe** annotates plant **pri-miRNA** transcripts from Iso-Seq and/or RNA-Seq data.
 For every pre-miRNA in a supplied BED file it reports which assembled transcripts
 contain the hairpin, how those transcripts are structured, and — when RNA-Seq is

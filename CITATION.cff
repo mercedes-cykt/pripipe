@@ -1,0 +1,46 @@
+# Citation metadata for pripipe.
+# Fill in the preferred-citation block once a paper or preprint exists;
+# until then GitHub can still use the software entry below.
+
+cff-version: 1.2.0
+message: "If you use pripipe in your research, please cite this software."
+
+title: "pripipe: plant pri-miRNA annotation from Iso-Seq and RNA-Seq"
+abstract: >-
+  pripipe annotates plant pri-miRNA transcripts from Iso-Seq and/or RNA-Seq data.
+  For every pre-miRNA in a supplied BED file it reports which assembled transcripts
+  contain the hairpin, how those transcripts are structured (spliced or intronic),
+  processing intermediates observed at the locus, and, when RNA-Seq is available,
+  locus-level expression.
+
+type: software
+
+authors:
+  - name: "mercedes-cykt"
+    email: "mrcdes@163.com"
+    # TODO: replace with family-names / given-names / orcid once confirmed
+
+version: "1.0.1"
+date-released: "2026-11-05"
+
+license: "GPL-3.0-only"
+repository-code: "https://github.com/mercedes-cykt/pripipe"
+url: "https://github.com/mercedes-cykt/pripipe"
+
+keywords:
+  - pri-miRNA
+  - microRNA
+  - Iso-Seq
+  - RNA-Seq
+  - plant
+  - bioinformatics
+  - transcriptome
+
+# preferred-citation:
+#   type: article
+#   title: ""
+#   authors:
+#     - name: ""
+#   journal: ""
+#   year: 0000
+#   doi: ""

@@ -8,6 +8,9 @@ dist/
 
 # pripipe run artefacts
 ci_out/
+pripipe/tests/_scratch/
+_testtmp/
+_utest.txt
 pripipe_out/
 results/
 tmp/

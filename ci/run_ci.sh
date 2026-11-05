@@ -1,25 +1,35 @@
-#!/bin/bash
-# ci/run_ci.sh — end-to-end smoke test on testdata/ (~2-3 min)
+#!/usr/bin/env bash
+# End-to-end smoke test on testdata/ (about a minute once the environment exists).
+#
+# Environment variables:
+#   PYTHON        interpreter to use            (default: python3)
+#   SQANTI3_DIR   SQANTI3 source checkout       (default: the lab path)
+#   CUPCAKE_DIR   directory with Cupcake's python + collapse_isoforms_by_sam.py
 set -euo pipefail
-export PATH=/nfs/users/zhaojw/miniconda3/envs/pri-miRNA-pipe/bin:$PATH
-PY=/nfs/users/zhaojw/miniconda3/envs/pri-miRNA-pipe/bin/python3
+
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${1:-$ROOT/ci_out}
+PY=${PYTHON:-python3}
+SQ3=${SQANTI3_DIR:-/nfs/users/zhaojw/software/SQANTI3}
+CUPCAKE=${CUPCAKE_DIR:-/nfs/users/zhaojw/miniconda3/envs/isoseq/bin}
+
 cd "$ROOT"
 rm -rf "$OUT"
 
-echo "=== pripipe CI: $(date) ==="
-$PY -m pripipe.cli run \
+echo "=== pripipe CI: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+"$PY" -m pripipe.cli run \
   --genome testdata/genome.fa \
   --mirna-bed testdata/mirna_pre.bed \
   --gtf testdata/ref.gtf \
   --iso testdata/iso.fa --iso-type hq \
   --rna testdata/samples.tsv \
+  --sqanti3-dir "$SQ3" \
+  --cupcake-dir "$CUPCAKE" \
   --out "$OUT" --threads 8 2>&1 | tail -12
 
 echo
-echo "=== 断言 ==="
-$PY - "$OUT" <<'PY'
+echo "=== assertions ==="
+"$PY" - "$OUT" <<'PY'
 import json, sys
 from pathlib import Path
 
