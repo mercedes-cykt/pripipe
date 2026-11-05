@@ -7,6 +7,7 @@ plus a library strandedness call in ``strandness.txt``.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -49,6 +50,27 @@ def ensure_index(cfg: RunConfig, logs: Path) -> Path:
     _run(["hisat2-build", "-p", str(cfg.threads), str(cfg.genome), str(prefix)],
          logs / "hisat2_build.log")
     return prefix
+
+
+def read_fastp_json(path: Path) -> dict | None:
+    """Pull the numbers worth reporting out of a fastp JSON report."""
+    if not path.exists():
+        return None
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    before = d.get("summary", {}).get("before_filtering", {})
+    after = d.get("summary", {}).get("after_filtering", {})
+    dup = d.get("duplication", {}).get("rate", float("nan"))
+    return {
+        "sample": path.stem,
+        "reads_before": before.get("total_reads", "NA"),
+        "reads_after": after.get("total_reads", "NA"),
+        "q30_before": round(before.get("q30_rate", float("nan")), 4),
+        "q30_after": round(after.get("q30_rate", float("nan")), 4),
+        "duplication_rate": round(dup, 4),
+    }
 
 
 def detect_strandness(bams: list[tuple[str, Path]], out: Path) -> str:
@@ -114,15 +136,24 @@ def stage_rna(cfg: RunConfig, rep) -> None:
             if dst.exists():
                 aligned.append((sid, dst))
                 continue
-            _status(f"fastp + hisat2: {sid}")
-            fq1 = out_dir / "fastq" / f"{sid}_1.fq.gz"
-            fq2 = out_dir / "fastq" / f"{sid}_2.fq.gz"
-            fq1.parent.mkdir(parents=True, exist_ok=True)
-            fastp = ["fastp", "-i", s["r1"], "-o", str(fq1),
-                     "-w", str(min(8, cfg.threads)), "-j", str(out_dir / "fastq" / f"{sid}.json")]
-            if s["r2"]:
-                fastp += ["-I", s["r2"], "-O", str(fq2)]
-            _run(fastp, logs / f"{sid}_fastp.log")
+            if cfg.fastp_clean:
+                _status(f"fastp + hisat2: {sid}")
+                fq1 = out_dir / "fastq" / f"{sid}_1.fq.gz"
+                fq2 = out_dir / "fastq" / f"{sid}_2.fq.gz"
+                fq1.parent.mkdir(parents=True, exist_ok=True)
+                fastp = ["fastp", "-i", s["r1"], "-o", str(fq1),
+                         "-w", str(min(8, cfg.threads)),
+                         "-j", str(out_dir / "fastq" / f"{sid}.json"),
+                         "-h", str(out_dir / "fastq" / f"{sid}.html")]
+                if s["r2"]:
+                    fastp += ["-I", s["r2"], "-O", str(fq2)]
+                _run(fastp, logs / f"{sid}_fastp.log")
+                fastp_json = out_dir / "fastq" / f"{sid}.json"
+            else:
+                _status(f"fastp skipped (--no-fastp-clean), aligning raw reads: {sid}")
+                fq1 = Path(s["r1"])
+                fq2 = Path(s["r2"]) if s["r2"] else None
+                fastp_json = None
 
             hisat = ["hisat2", "-p", str(cfg.threads), "-x", str(index),
                      "--dta", "--novel-splicesite-outfile", str(out_dir / f"{sid}.splicesites")]
@@ -141,6 +172,19 @@ def stage_rna(cfg: RunConfig, rep) -> None:
                 raise RuntimeError(f"alignment failed for {sid} (see {log})")
             _run(["samtools", "index", str(dst)], logs / f"{sid}_index.log")
             aligned.append((sid, dst))
+
+    if cfg.fastp_clean:
+        rows = [read_fastp_json(out_dir / "fastq" / f"{s['sample_id']}.json")
+                for s in to_align]
+        rows = [r for r in rows if r]
+        if rows:
+            summary = out_dir / "fastp_summary.tsv"
+            with summary.open("w", encoding="utf-8") as fh:
+                cols = list(rows[0])
+                fh.write("\t".join(cols) + "\n")
+                for row in rows:
+                    fh.write("\t".join(str(row[c]) for c in cols) + "\n")
+            rep.facts.setdefault("rna", {})["fastp"] = rows
 
     strand_file = out_dir / "strandness.txt"
     call = cfg.strandedness

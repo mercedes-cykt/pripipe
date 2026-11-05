@@ -118,6 +118,10 @@ def _common(p: argparse.ArgumentParser) -> None:
                      default="auto", help="library strandedness (default: %(default)s, detected)")
     rna.add_argument("--hisat2-index", type=Path, metavar="PREFIX",
                      help="reuse an existing hisat2 index instead of building one")
+    rna.add_argument("--fastp-clean", dest="fastp_clean", action="store_true", default=True,
+                     help="clean raw FASTQ with fastp before alignment (default: on)")
+    rna.add_argument("--no-fastp-clean", dest="fastp_clean", action="store_false",
+                     help="skip fastp and align the input FASTQ as given (already-cleaned data)")
 
     anc.add_argument("--extend-hairpin", type=int, default=0, metavar="N",
                      help="grow each hairpin by N bp before anchoring, as a boundary "
@@ -169,6 +173,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
         iso_min_rq=args.iso_min_rq,
         rna=args.rna,
         strandedness=args.strandedness,
+        fastp_clean=args.fastp_clean,
         extend_hairpin=args.extend_hairpin,
         min_flank=args.min_flank,
         allow_partial=args.allow_partial,

@@ -142,6 +142,11 @@ mix01       m1.fq.gz    m2.fq.gz    mix01.bam   mix
 - single-end runs put `-` in `r2`;
 - `group` is optional and enables per-group means.
 
+Raw FASTQ is cleaned with `fastp` (adapter and quality trimming) before
+alignment; pass `--no-fastp-clean` to align the reads exactly as supplied.
+Per-sample read counts and duplication rates are written to
+`rna/fastp_summary.tsv`.
+
 ## Common options
 
 | Option | Default | Description |
@@ -159,6 +164,7 @@ mix01       m1.fq.gz    m2.fq.gz    mix01.bam   mix
 | `--min-transcript-length` / `--max-transcript-length` | 200 / 100000 | Transcripts outside this span are dropped and logged |
 | `--max-mono-exon-span` | 10000 | Single-exon models longer than this are flagged, not dropped |
 | `--drop-classes` | `fusion` | Comma-separated SQANTI3 structural categories to remove |
+| `--fastp-clean` / `--no-fastp-clean` | on | Clean raw FASTQ with fastp before alignment; disable it when the provider already delivered cleaned reads |
 | `--threads` | 8 | Threads passed to the external tools |
 | `--from` / `--to` | — | Restrict the run to a range of stages |
 | `--existing-catalog` | — | Reuse a finished SQANTI3 output directory |

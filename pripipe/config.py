@@ -48,6 +48,7 @@ class RunConfig:
 
     # --- shared options --------------------------------------------------
     strandedness: Strandedness = "auto"
+    fastp_clean: bool = True            # run fastp on raw FASTQ (default on)
     extend_hairpin: int = 0
     min_flank: int = 50
     allow_partial: bool = False
