@@ -25,6 +25,7 @@ from ..config import RunConfig
 from ..models import AnchorPair, Hairpin, Intermediate, Transcript
 
 TX_ID_RE = re.compile(r'transcript_id\s*[=]?\s*"?([^";]+)"?')
+SRC_RE = re.compile(r'pri_source\s+"([^"]+)"')
 CLUSTER_TOL = 3    # bp tolerance when clustering transcript endpoints
 MIN_CLUSTER = 2    # isoforms required before an intermediate is called
 
@@ -37,9 +38,13 @@ def _status(msg: str) -> None:
 # inputs
 # --------------------------------------------------------------------------
 def parse_gtf(path: Path, source: str = "RNA-Seq") -> dict[str, Transcript]:
-    """Parse a GTF/GFF3 into transcript models (exons 0-based half-open)."""
+    """Parse a GTF/GFF3 into transcript models (exons 0-based half-open).
+
+    A `pri_source` attribute (written by the catalog stage) overrides `source`
+    so that a merged catalog keeps its per-transcript provenance.
+    """
     exons: dict[str, list[tuple[int, int]]] = defaultdict(list)
-    meta: dict[str, tuple[str, str]] = {}
+    meta: dict[str, tuple[str, str, str]] = {}
     with path.open(encoding="utf-8-sig", errors="replace") as fh:
         for line in fh:
             if line.startswith("#") or not line.strip():
@@ -53,13 +58,14 @@ def parse_gtf(path: Path, source: str = "RNA-Seq") -> dict[str, Transcript]:
             tid = m.group(1)
             start, end = int(f[3]) - 1, int(f[4])       # 1-based -> 0-based
             exons[tid].append((start, end))
-            meta.setdefault(tid, (f[0], f[6]))
+            src = SRC_RE.search(f[8])
+            meta.setdefault(tid, (f[0], f[6], src.group(1) if src else source))
 
     txs: dict[str, Transcript] = {}
     for tid, spans in exons.items():
-        chrom, strand = meta[tid]
+        chrom, strand, tx_source = meta[tid]
         txs[tid] = Transcript(tid=tid, chrom=chrom, strand=strand,
-                              exons=sorted(spans), source=source)
+                              exons=sorted(spans), source=tx_source)
     return txs
 
 
@@ -331,14 +337,11 @@ def stage_anchor(cfg: RunConfig, rep) -> None:
         sys.stderr.write(f"[anchor] catalog not found: {gtf}\n")
         raise SystemExit(4)
     pins = load_hairpins_bed(cfg.mirna_bed)
-    iso_gtf = cat_dir / "transcripts.iso.gtf"
-    rna_gtf = cat_dir / "transcripts.rna.gtf"
-    if iso_gtf.exists() and rna_gtf.exists():
-        txs = merge_catalogs([("Iso-Seq", parse_gtf(iso_gtf, source="Iso-Seq")),
-                              ("RNA-Seq", parse_gtf(rna_gtf, source="RNA-Seq"))])
-    else:
-        sources = catalog_sources(cat_dir, cfg)
-        txs = parse_gtf(gtf, source="+".join(sources))
+    # Anchor on the *filtered* union catalog. The per-source files next to it are
+    # pre-filter copies kept for provenance and must not be used here, otherwise
+    # models removed by the catalog filters would still be reported as evidence.
+    sources = catalog_sources(cat_dir, cfg)
+    txs = parse_gtf(gtf, source="+".join(sources))
     pairs, intermeds, loci, st = anchor_pri(
         pins, txs, min_flank=0, allow_partial=cfg.allow_partial,
         window=cfg.extend_hairpin or 50)

@@ -99,6 +99,19 @@ class AnchorTest(ScratchTest):
         self.assertNotIn("T3a", {p.tx.tid for p in pairs})
 
 
+class SourceAttributeTest(ScratchTest):
+    def test_pri_source_is_parsed(self) -> None:
+        gtf = self.tmp / "merged.gtf"
+        write(gtf,
+              'chr1\tsrc\texon\t1\t500\t.\t+\t.\tgene_id "T1"; transcript_id "T1";'
+              ' exon_number "1"; pri_source "Iso-Seq+RNA-Seq";\n'
+              'chr1\tsrc\texon\t1\t400\t.\t+\t.\tgene_id "T2"; transcript_id "T2";'
+              ' exon_number "1"; pri_source "RNA-Seq";\n')
+        txs = parse_gtf(gtf, source="fallback")
+        self.assertEqual(txs["T1"].source, "Iso-Seq+RNA-Seq")
+        self.assertEqual(txs["T2"].source, "RNA-Seq")
+
+
 class ValidateTest(ScratchTest):
     def setUp(self) -> None:
         super().setUp()

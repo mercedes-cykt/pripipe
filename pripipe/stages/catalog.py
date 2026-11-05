@@ -253,6 +253,9 @@ def dedup_structural(txs: dict[str, Transcript], tss_tol: int,
 
     def flush(cluster: list[Transcript]) -> None:
         rep = max(cluster, key=lambda t: t.end - t.start)
+        # a collapsed transcript still counts as evidence for its sources
+        sources = {s for member in cluster for s in member.source.split("+")}
+        rep.source = "+".join(sorted(sources, key=lambda s: (s != "Iso-Seq", s)))
         kept[rep.tid] = rep
         for member in cluster:
             if member.tid != rep.tid:
@@ -461,9 +464,11 @@ def _write_gtf(txs: dict[str, Transcript], dst: Path) -> None:
             # same name (gene_id == transcript_id), which breaks kallisto indexing
             for i, (s, e) in enumerate(tx.exons, 1):
                 fh.write(f'{tx.chrom}\tpripipe\texon\t{s + 1}\t{e}\t.\t{tx.strand}\t.\t'
-                         f'gene_id "{tx.tid}"; transcript_id "{tx.tid}"; exon_number "{i}";\n')
+                         f'gene_id "{tx.tid}"; transcript_id "{tx.tid}"; exon_number "{i}";'
+                         f' pri_source "{tx.source}";\n')
             fh.write(f'{tx.chrom}\tpripipe\ttranscript\t{tx.start + 1}\t{tx.end}\t.\t'
-                     f'{tx.strand}\t.\tgene_id "{tx.tid}"; transcript_id "{tx.tid}";\n')
+                     f'{tx.strand}\t.\tgene_id "{tx.tid}"; transcript_id "{tx.tid}";'
+                     f' pri_source "{tx.source}";\n')
 
 
 def _write_rows(path: Path, header: list[str], rows: list[tuple]) -> None:
