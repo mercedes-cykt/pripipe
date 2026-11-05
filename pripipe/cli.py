@@ -64,14 +64,17 @@ def _common(p: argparse.ArgumentParser) -> None:
     cat.add_argument("--max-mono-exon-span", type=int, default=10_000, metavar="N",
                      help="flag single-exon transcripts spanning more than N bp "
                           "(flagged, never dropped; default: %(default)s)")
+    cat.add_argument("--flag-transcript-length", type=int, default=50_000, metavar="N",
+                     help="flag transcripts spanning more than N bp "
+                          "(flagged, never dropped; default: %(default)s)")
     cat.add_argument("--drop-classes", default="fusion", metavar="LIST",
                      help="comma-separated SQANTI3 categories to drop (default: %(default)s)")
     cat.add_argument("--dedup", choices=["structural", "cdhit", "none"], default="structural",
                      help="redundancy removal: structural clustering on exon chain + TSS/PAS "
                           "tolerance, cd-hit-est, or none (default: %(default)s)")
-    cat.add_argument("--dedup-tss-tolerance", type=int, default=50, metavar="N",
+    cat.add_argument("--dedup-tss-tolerance", type=int, default=100, metavar="N",
                      help="TSS tolerance for structural dedup (default: %(default)s)")
-    cat.add_argument("--dedup-pas-tolerance", type=int, default=50, metavar="N",
+    cat.add_argument("--dedup-pas-tolerance", type=int, default=100, metavar="N",
                      help="PAS tolerance for structural dedup (default: %(default)s)")
     cat.add_argument("--cdhit-identity", type=float, default=0.95, metavar="F",
                      help="cd-hit-est identity threshold (default: %(default)s)")
@@ -193,6 +196,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
         min_transcript_length=args.min_transcript_length,
         max_transcript_length=args.max_transcript_length,
         max_mono_exon_span=args.max_mono_exon_span,
+        flag_transcript_length=args.flag_transcript_length,
         drop_classes=args.drop_classes,
         dedup=args.dedup,
         dedup_tss_tolerance=args.dedup_tss_tolerance,

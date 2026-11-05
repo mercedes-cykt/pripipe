@@ -213,6 +213,8 @@ def apply_filters(txs: dict[str, Transcript], classes: dict[str, str],
             continue
         if tx.n_exons == 1 and length > cfg.max_mono_exon_span:
             flagged.append((tid, "mono_exon_span", length))
+        if length > cfg.flag_transcript_length:
+            flagged.append((tid, "very_long", length))
         kept[tid] = tx
 
     stats = {
@@ -223,6 +225,7 @@ def apply_filters(txs: dict[str, Transcript], classes: dict[str, str],
         "min_transcript_length": cfg.min_transcript_length,
         "max_transcript_length": cfg.max_transcript_length,
         "max_mono_exon_span": cfg.max_mono_exon_span,
+        "flag_transcript_length": cfg.flag_transcript_length,
         "drop_classes": sorted(drop_classes),
         "dropped_by_reason": dict(sorted(
             ((reason, sum(1 for _, r, _ in dropped if r == reason))

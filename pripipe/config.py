@@ -70,8 +70,9 @@ class RunConfig:
     max_mono_exon_span: int = 10_000
     drop_classes: str = "fusion"            # comma separated SQANTI3 categories
     dedup: Literal["structural", "cdhit", "none"] = "structural"
-    dedup_tss_tolerance: int = 50
-    dedup_pas_tolerance: int = 50
+    flag_transcript_length: int = 50_000     # flag (never drop) above this span
+    dedup_tss_tolerance: int = 100
+    dedup_pas_tolerance: int = 100
     cdhit_identity: float = 0.95
 
     # --- reuse an existing run -------------------------------------------

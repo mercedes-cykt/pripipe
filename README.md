@@ -160,9 +160,10 @@ Per-sample read counts and duplication rates are written to
 | `--min-flank` | 50 | Flag transcripts with less than N bp flanking the hairpin (flagged, never dropped) |
 | `--allow-partial` | off | Also report transcripts that cover the hairpin only partially |
 | `--dedup` | `structural` | Redundancy removal: collapse transcripts sharing an exon chain and a TSS/PAS within tolerance, `cdhit` for cd-hit-est, or `none` |
-| `--dedup-tss-tolerance` / `--dedup-pas-tolerance` | 50 | Endpoint tolerance (bp) for structural dedup |
+| `--dedup-tss-tolerance` / `--dedup-pas-tolerance` | 100 | Endpoint tolerance (bp) for structural dedup |
 | `--min-transcript-length` / `--max-transcript-length` | 200 / 100000 | Transcripts outside this span are dropped and logged |
 | `--max-mono-exon-span` | 10000 | Single-exon models longer than this are flagged, not dropped |
+| `--flag-transcript-length` | 50000 | Models spanning more than this are flagged, not dropped |
 | `--drop-classes` | `fusion` | Comma-separated SQANTI3 structural categories to remove |
 | `--fastp-clean` / `--no-fastp-clean` | on | Clean raw FASTQ with fastp before alignment; disable it when the provider already delivered cleaned reads |
 | `--threads` | 8 | Threads passed to the external tools |
@@ -174,7 +175,7 @@ Per-sample read counts and duplication rates are written to
 The `catalog` stage also filters the assembly and removes redundancy. Defaults:
 drop transcripts shorter than 200 bp or longer than 100 kb, drop SQANTI3 `fusion`
 models, flag (but keep) single-exon models spanning more than 10 kb, then collapse
-transcripts that share an exon chain and whose TSS/PAS differ by at most 50 bp,
+transcripts that share an exon chain and whose TSS/PAS differ by at most 100 bp,
 keeping the longest. Every removal is written to `catalog/dropped.tsv` or
 `catalog/collapsed.tsv`, and the counts land in `catalog/filter_stats.json`.
 
