@@ -27,7 +27,7 @@ from pathlib import Path
 from .. import __schema_version__, __version__
 from ..config import RunConfig
 from ..utils import env_with_env_bin
-from .anchor import TX_ID_RE
+from .anchor import TX_ID_RE, parse_gtf
 
 DETECTED_TPM = 1.0     # a sample counts as "detected" above this pri_sum TPM
 
@@ -160,7 +160,8 @@ def build_locus_rows(cfg: RunConfig, pairs: list[dict], intermed: list[dict],
                      expr_cols: list[str], expr: dict[str, dict[str, float]],
                      counts: dict[str, dict[str, float]],
                      env_idx: dict | None, classes: dict[str, str],
-                     fl: dict[str, int], backend: str) -> list[dict]:
+                     fl: dict[str, int], backend: str,
+                     chains: dict[str, tuple]) -> list[dict]:
     samples = sample_columns(expr_cols)
     groups = sorted({s["group"] for s in _samples_of(cfg) if s["group"]}) if cfg.rna else []
 
@@ -191,6 +192,8 @@ def build_locus_rows(cfg: RunConfig, pairs: list[dict], intermed: list[dict],
             "strand": first["strand"],
             "hp_length": int(first["hp_length"]),
             "n_transcripts": len({i["transcript_id"] for i in items}),
+            "n_structures": len({chains[t] for t in {i["transcript_id"] for i in items}
+                                 if t in chains}) if chains else "NA",
             "n_spliced": n_spliced,
             "n_intronic": n_intronic,
             "n_partial": n_partial,
@@ -337,8 +340,14 @@ def stage_report(cfg: RunConfig, rep) -> None:
     fl = read_fl_counts(cfg.stage_dir("catalog"))
     backend = quant_stats.get("backend", "none") if quant_stats else "none"
 
+    chains: dict[str, tuple] = {}
+    catalog_gtf = cfg.stage_dir("catalog") / "transcripts.gtf"
+    if catalog_gtf.exists():
+        for tid, tx in parse_gtf(catalog_gtf).items():
+            chains[tid] = (tx.chrom, tx.strand, tuple(tx.exons))
+
     rows = build_locus_rows(cfg, pairs, intermed, expr_cols, expr, counts,
-                            env_idx, classes, fl, backend)
+                            env_idx, classes, fl, backend, chains)
     write_table(pri_dir / "pri_mirna.tsv", rows)
 
     pair_rows = [{"locus_id": p["hairpin_id"], **{k: p[k] for k in PAIR_COLS if k != "locus_id"}}

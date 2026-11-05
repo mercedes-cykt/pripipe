@@ -1,4 +1,4 @@
-﻿"""Run configuration and stage layout for pripipe."""
+"""Run configuration and stage layout for pripipe."""
 
 from __future__ import annotations
 
@@ -62,6 +62,16 @@ class RunConfig:
     tmp_dir: Path = Path("./tmp")
     threads: int = 8
     keep_intermediate: bool = False
+
+    # --- catalog filtering / redundancy ----------------------------------
+    min_transcript_length: int = 200
+    max_transcript_length: int = 100_000
+    max_mono_exon_span: int = 10_000
+    drop_classes: str = "fusion"            # comma separated SQANTI3 categories
+    dedup: Literal["structural", "cdhit", "none"] = "structural"
+    dedup_tss_tolerance: int = 50
+    dedup_pas_tolerance: int = 50
+    cdhit_identity: float = 0.95
 
     # --- reuse an existing run -------------------------------------------
     existing_catalog: Optional[Path] = None   # SQANTI3 output dir to reuse

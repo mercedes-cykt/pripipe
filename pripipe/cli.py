@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """pripipe command line entry point.
 
 Two commands:
@@ -56,6 +56,26 @@ def _common(p: argparse.ArgumentParser) -> None:
     rna = p.add_argument_group("RNA-Seq input")
     anc = p.add_argument_group("anchoring criteria")
     qnt = p.add_argument_group("quantification")
+    cat = p.add_argument_group("catalog filtering")
+    cat.add_argument("--min-transcript-length", type=int, default=200, metavar="N",
+                     help="drop transcripts shorter than N bp (default: %(default)s)")
+    cat.add_argument("--max-transcript-length", type=int, default=100_000, metavar="N",
+                     help="drop transcripts spanning more than N bp (default: %(default)s)")
+    cat.add_argument("--max-mono-exon-span", type=int, default=10_000, metavar="N",
+                     help="flag single-exon transcripts spanning more than N bp "
+                          "(flagged, never dropped; default: %(default)s)")
+    cat.add_argument("--drop-classes", default="fusion", metavar="LIST",
+                     help="comma-separated SQANTI3 categories to drop (default: %(default)s)")
+    cat.add_argument("--dedup", choices=["structural", "cdhit", "none"], default="structural",
+                     help="redundancy removal: structural clustering on exon chain + TSS/PAS "
+                          "tolerance, cd-hit-est, or none (default: %(default)s)")
+    cat.add_argument("--dedup-tss-tolerance", type=int, default=50, metavar="N",
+                     help="TSS tolerance for structural dedup (default: %(default)s)")
+    cat.add_argument("--dedup-pas-tolerance", type=int, default=50, metavar="N",
+                     help="PAS tolerance for structural dedup (default: %(default)s)")
+    cat.add_argument("--cdhit-identity", type=float, default=0.95, metavar="F",
+                     help="cd-hit-est identity threshold (default: %(default)s)")
+
     dep = p.add_argument_group("external dependencies")
     run = p.add_argument_group("execution")
 
@@ -165,6 +185,14 @@ def _config(args: argparse.Namespace) -> RunConfig:
         collapse_strategy=args.collapse_strategy,
         iso_singletons=args.iso_singletons,
         cupcake_dir=args.cupcake_dir,
+        min_transcript_length=args.min_transcript_length,
+        max_transcript_length=args.max_transcript_length,
+        max_mono_exon_span=args.max_mono_exon_span,
+        drop_classes=args.drop_classes,
+        dedup=args.dedup,
+        dedup_tss_tolerance=args.dedup_tss_tolerance,
+        dedup_pas_tolerance=args.dedup_pas_tolerance,
+        cdhit_identity=args.cdhit_identity,
         from_stage=getattr(args, "from_stage", None),
         to_stage=getattr(args, "to_stage", None),
         keep_intermediate=getattr(args, "keep_intermediate", False),

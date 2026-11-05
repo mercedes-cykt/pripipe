@@ -1,4 +1,4 @@
-﻿"""Unit tests that need no external tools (run with `python -m unittest`)."""
+"""Unit tests that need no external tools (run with `python -m unittest`)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from pripipe.cli import main
 from pripipe.config import RunConfig
 from pripipe.models import Hairpin
 from pripipe.stages.anchor import anchor_pri, parse_gtf
+from pripipe.stages.catalog import apply_filters, dedup_structural
+from pripipe.models import Transcript
 from pripipe.validate import Report, read_hairpins
 
 SCRATCH = Path(__file__).resolve().parent / "_scratch"
@@ -136,6 +138,56 @@ class ValidateTest(ScratchTest):
         bed = write(self.tmp / "oob.bed", "chr1\t900\t1200\thp1\t0\t+\n")
         _, rep = self._pins(bed)
         self.assertTrue(any("exceeds" in e for e in rep.errors))
+
+
+class DedupTest(unittest.TestCase):
+    """Redundancy removal must never drop a transcript without recording it."""
+
+    def _txs(self):
+        return {
+            f"T{i}": Transcript(tid=f"T{i}", chrom="chr1", strand="+",
+                                exons=[(i * 20, 500 + i * 20)])
+            for i in range(6)   # TSS 0,20,40,...,PAS 500,520,...
+        }
+
+    def test_no_silent_loss(self) -> None:
+        txs = self._txs()
+        kept, collapsed = dedup_structural(txs, tss_tol=50, pas_tol=50)
+        self.assertEqual(len(kept) + len(collapsed), len(txs))
+        self.assertLessEqual(len(kept), len(txs))
+        for member, rep in collapsed:
+            self.assertIn(rep, kept)
+            self.assertNotIn(member, kept)
+
+    def test_tolerance_splits_clusters(self) -> None:
+        txs = self._txs()
+        kept_tight, collapsed_tight = dedup_structural(txs, tss_tol=5, pas_tol=5)
+        self.assertEqual(len(collapsed_tight), 0)
+        self.assertEqual(len(kept_tight), len(txs))
+
+    def test_longest_wins(self) -> None:
+        txs = {
+            "short": Transcript("short", "chr1", "+", [(0, 500)]),
+            "long": Transcript("long", "chr1", "+", [(0, 530)]),
+        }
+        kept, collapsed = dedup_structural(txs, 50, 50)
+        self.assertIn("long", kept)
+        self.assertEqual(collapsed, [("short", "long")])
+
+    def test_filter_reasons(self) -> None:
+        from pripipe.config import RunConfig
+        cfg = RunConfig(genome=Path("g.fa"), mirna_bed=Path("b.bed"))
+        txs = {
+            "tiny": Transcript("tiny", "chr1", "+", [(0, 100)]),
+            "huge": Transcript("huge", "chr1", "+", [(0, 200_000)]),
+            "ok": Transcript("ok", "chr1", "+", [(0, 400), (600, 900)]),
+        }
+        kept, dropped, flagged, stats = apply_filters(txs, {}, cfg)
+        reasons = {tid: reason for tid, reason, _ in dropped}
+        self.assertEqual(reasons["tiny"], "shorter_than_min")
+        self.assertEqual(reasons["huge"], "longer_than_max")
+        self.assertIn("ok", kept)
+        self.assertEqual(stats["n_in"], 3)
 
 
 class CliTest(unittest.TestCase):
