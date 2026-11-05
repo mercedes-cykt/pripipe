@@ -124,19 +124,20 @@ def classify_env(hp_chrom: str, hp_start: int, hp_end: int, hp_strand: str,
 
 def read_classification(catalog_dir: Path) -> dict[str, str]:
     """SQANTI3 `*classification.txt`: isoform -> structural_category."""
-    hits = sorted(catalog_dir.glob("*classification.txt"))
+    hits = sorted(catalog_dir.rglob("*classification.txt"))
     if not hits:
         return {}
     out: dict[str, str] = {}
-    with hits[0].open(encoding="utf-8") as fh:
-        header = fh.readline().rstrip("\n").split("\t")
-        if "isoform" not in header or "structural_category" not in header:
-            return {}
-        i_id, i_cat = header.index("isoform"), header.index("structural_category")
-        for line in fh:
-            f = line.rstrip("\n").split("\t")
-            if len(f) > i_cat:
-                out[f[i_id]] = f[i_cat]
+    for hit in hits:
+        with hit.open(encoding="utf-8") as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            if "isoform" not in header or "structural_category" not in header:
+                continue
+            i_id, i_cat = header.index("isoform"), header.index("structural_category")
+            for line in fh:
+                f = line.rstrip("\n").split("\t")
+                if len(f) > i_cat:
+                    out[f[i_id]] = f[i_cat]
     return out
 
 
