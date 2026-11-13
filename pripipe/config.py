@@ -83,6 +83,9 @@ class RunConfig:
     # --- external dependency (pinned contract) ---------------------------
     sqanti3_dir: Path = Path("/nfs/users/zhaojw/software/SQANTI3")
     sqanti3_pin: str = "v5.5.4"
+    # SQANTI3 QC report: html / pdf / both / skip.  "skip" avoids the
+    # R package NOISeq, which the report needs but the pipeline does not.
+    sqanti3_report: str = "skip"
 
     # --- execution control ----------------------------------------------
     from_stage: Optional[str] = None

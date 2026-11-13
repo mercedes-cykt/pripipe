@@ -149,12 +149,14 @@ def run_sqanti3(cfg: RunConfig, isoforms: Path, outdir: Path, tag: str) -> Path:
     if cached is not None:
         _status(f"reusing SQANTI3 output: {cached.name}")
         return cached
+    report = getattr(cfg, "sqanti3_report", "skip")
     cmd = [sys.executable, str(qc),
            "--isoforms", str(isoforms),
            "--refGTF", str(cfg.gtf),
            "--refFasta", str(cfg.genome),
            "--skipORF", "-t", str(cfg.threads),
-           "-o", tag, "-d", str(outdir)]
+           "-o", tag, "-d", str(outdir),
+           "--report", str(report)]
     _status(f"SQANTI3 on {isoforms.name} -> {tag}")
     _run(cmd, cfg.stage_dir("catalog") / "logs" / f"sqanti3_{tag}.log")
     gtf = pick_sqanti3_gtf(outdir)
