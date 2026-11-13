@@ -5,6 +5,9 @@
 #   PYTHON        interpreter to use            (default: python3)
 #   SQANTI3_DIR   SQANTI3 source checkout       (default: the lab path)
 #   CUPCAKE_DIR   directory with Cupcake's python + collapse_isoforms_by_sam.py
+#
+# Failures are echoed as GitHub "::error::" annotations so that the reason shows
+# up in the run summary without needing to download the raw log.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -12,11 +15,22 @@ OUT=${1:-$ROOT/ci_out}
 PY=${PYTHON:-python3}
 SQ3=${SQANTI3_DIR:-/nfs/users/zhaojw/software/SQANTI3}
 CUPCAKE=${CUPCAKE_DIR:-/nfs/users/zhaojw/miniconda3/envs/isoseq/bin}
+LOG=${TMPDIR:-/tmp}/pripipe_e2e.log
 
 cd "$ROOT"
 rm -rf "$OUT"
 
 echo "=== pripipe CI: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+echo "python : $("$PY" -c 'import sys; print(sys.executable)' 2>/dev/null || echo "$PY")"
+echo "sqanti3: $SQ3"
+echo "cupcake: $CUPCAKE"
+
+fail() {
+  echo "::error title=pripipe e2e::$1"
+  exit 1
+}
+
+set +e
 "$PY" -m pripipe.cli run \
   --genome testdata/genome.fa \
   --mirna-bed testdata/mirna_pre.bed \
@@ -25,16 +39,32 @@ echo "=== pripipe CI: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
   --rna testdata/samples.tsv \
   --sqanti3-dir "$SQ3" \
   --cupcake-dir "$CUPCAKE" \
-  --out "$OUT" --threads 8 2>&1 | tail -12
+  --out "$OUT" --threads 8 >"$LOG" 2>&1
+rc=$?
+set -e
+
+tail -12 "$LOG"
+if [ "$rc" -ne 0 ]; then
+  echo "--- last lines of $LOG ---"
+  tail -25 "$LOG" || true
+  while IFS= read -r line; do
+    echo "::error::$line"
+  done < <(grep -E 'Error|error|Traceback|raise |Exception|not found|No such' "$LOG" | tail -5 || true)
+  fail "pipeline exited with $rc"
+fi
 
 echo
 echo "=== assertions ==="
+set +e
 "$PY" - "$OUT" <<'PY'
 import json, sys
 from pathlib import Path
 
 out = Path(sys.argv[1])
 pri = out / "pri/pri_mirna.tsv"
+if not pri.exists():
+    print(f"::error title=pripipe e2e::missing {pri}")
+    sys.exit(1)
 rows = pri.read_text().splitlines()
 header = rows[0].split("\t")
 data = [r.split("\t") for r in rows[1:]]
@@ -55,5 +85,13 @@ print(f"loci={stats['n_loci']} pairs={stats['n_pairs']} "
       f"backend={quant['backend']} columns={len(header)}")
 for name, ok in checks.items():
     print(f"  {'PASS' if ok else 'FAIL'}  {name}")
+    if not ok:
+        print(f"::error title=pripipe e2e::check failed: {name}")
 sys.exit(0 if all(checks.values()) else 1)
 PY
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "assertions failed with $rc"
+
+echo
+echo "=== e2e OK ==="
