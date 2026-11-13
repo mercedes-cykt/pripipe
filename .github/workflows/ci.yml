@@ -48,9 +48,13 @@ jobs:
 
   e2e:
     name: end-to-end (conda environment + testdata)
+    # Weekly, on demand, or on a push whose message contains [e2e]
+    # (used when touching env/ or ci/ scripts).
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule'
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' &&
+       contains(github.event.head_commit.message, '[e2e]'))
     runs-on: ubuntu-latest
     timeout-minutes: 90
     defaults:
