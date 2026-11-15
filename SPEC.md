@@ -74,18 +74,21 @@ out/
 └── manifest.json                  # 输入 md5/参数/工具版本/阶段统计
 ```
 
-`pri_mirna.tsv`（29 列，检测到 group 时更多）：
+`pri_mirna.tsv`（31 列，检测到 group 时更多）：
 
 ```
 schema_version, locus_id, chrom, hp_start, hp_end, strand, hp_length,
 n_transcripts, n_structures, n_spliced, n_intronic, n_partial, anchor_type, transcripts,
-sources, evidence_level, flank_5p_max, flank_3p_max, genomic_env, class_code,
+sources, evidence_level, flank_5p_max, flank_3p_max, genomic_env,
+locus_class, locus_partners, class_code,
 n_intermediates, n_fl, expr_backend, pri_sum_tpm, pri_sum_tpm_max,
 pri_sum_tpm_max_sample, n_samples_detected, tpm_<group>..., pri_sum_counts
 ```
 
 - `anchor_type`：该位点的主导类型（spliced / intronic / partial），逐对明细看 `pri_pairs.tsv`
 - `genomic_env`：相对参考注释同链判定（genic-exonic / genic-intronic / intergenic）
+- `locus_class`：`dedicated`（只产 miRNA）或 `shared`（发夹与同链基因 body 重叠 ≥1 bp，或支持转录本里还含另一个位点的完整发夹）
+- `locus_partners`：共享伙伴，`gene:<gene_id>` / `miRNA:<locus_id>`，`;` 分隔；dedicated 写 `-`。miRNA 共用是转录本级判据，因此只代表“可检出的共用”
 - `evidence_level`：`L1_iso`（有 Iso-Seq 支持）/ `L2_rnaseq` / `L3_annotation`
 - `n_samples_detected`：`pri_sum_tpm ≥ 1` 的样本数
 - `class_code`：SQANTI3 `*classification.txt` 的 structural_category，多位点用 `/` 连接

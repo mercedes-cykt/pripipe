@@ -11,6 +11,8 @@ from pripipe.config import RunConfig
 from pripipe.models import Hairpin
 from pripipe.stages.anchor import anchor_pri, parse_gtf
 from pripipe.stages.catalog import apply_filters, dedup_structural
+from pripipe.stages.report import (assign_scope, build_gene_index,
+                                   genes_overlapping)
 from pripipe.models import Transcript
 from pripipe.validate import Report, read_hairpins
 
@@ -217,3 +219,60 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScopeTest(ScratchTest):
+    """locus_class / locus_partners: gene overlap and shared pri."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.gtf = self.tmp / "ann.gtf"
+        rows = [
+            # G1 body 1,000-4,000 on chr1/+ through two exons
+            ("chr1", 1001, 2000, "+", "G1", "T1"),
+            ("chr1", 3501, 4000, "+", "G1", "T2"),
+            # antisense gene under hpE must not count
+            ("chr1", 8001, 8200, "-", "G5", "T6"),
+            # unrelated gene elsewhere
+            ("chr1", 9001, 9100, "+", "G4", "T7"),
+        ]
+        body = "".join(
+            f'{c}\tsrc\texon\t{s}\t{e}\t.\t{st}\t.\t'
+            f'gene_id "{g}"; transcript_id "{t}";\n'
+            for c, s, e, st, g, t in rows)
+        write(self.gtf, body)
+
+    def _chains(self):
+        # supporting transcripts live outside the reference annotation, which is
+        # exactly how a novel pri locus can sit outside every annotated gene
+        return {"T1": ("chr1", "+", ((1000, 2000),)),
+                "T5": ("chr1", "+", ((2400, 2600),)),
+                "T4": ("chr1", "+", ((5000, 5600),)),
+                "T9": ("chr1", "+", ((8000, 8100),))}
+
+    def _pairs(self):
+        def pair(locus, start, end, tid):
+            return {"hairpin_id": locus, "chrom": "chr1", "strand": "+",
+                    "hp_start": start, "hp_end": end, "transcript_id": tid}
+        return [pair("hpA", 1500, 1700, "T1"),      # inside G1 exon
+                pair("hpI", 2500, 2600, "T5"),      # inside G1 intron
+                pair("hpC", 5100, 5200, "T4"),
+                pair("hpD", 5400, 5500, "T4"),
+                pair("hpE", 8050, 8060, "T9")]
+
+    def test_gene_body_merges_exons(self) -> None:
+        idx = build_gene_index(self.gtf)
+        self.assertIn((1000, 4000, "G1"), idx[("chr1", "+")])
+
+    def test_scope(self) -> None:
+        scope = assign_scope(self._pairs(), self._chains(), build_gene_index(self.gtf))
+        self.assertEqual(scope["hpA"], ("shared", "gene:G1"))
+        self.assertEqual(scope["hpI"], ("shared", "gene:G1"))
+        self.assertEqual(scope["hpC"], ("shared", "miRNA:hpD"))
+        self.assertEqual(scope["hpD"], ("shared", "miRNA:hpC"))
+        self.assertEqual(scope["hpE"], ("dedicated", "-"))
+
+    def test_strand_is_respected(self) -> None:
+        idx = build_gene_index(self.gtf)
+        self.assertEqual(genes_overlapping("chr1", 8050, 8060, "+", idx), [])
+        self.assertEqual(genes_overlapping("chr1", 8050, 8060, "-", idx), ["G5"])

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import re
 import shutil
 import sys
 import time
@@ -121,6 +122,95 @@ def classify_env(hp_chrom: str, hp_start: int, hp_end: int, hp_strand: str,
                 return label
     return "intergenic"
 
+GENE_ID_RE = re.compile(r'gene_id "([^"]+)"')
+
+
+def build_gene_index(gtf: Path) -> dict[tuple[str, str], list[tuple[int, int, str]]]:
+    """(chrom, strand) -> gene bodies as (start, end, gene_id), sorted by start.
+
+    The body is the min/max over all exons/CDS of a gene, i.e. the interval a
+    hairpin has to overlap to be called *shared* with that gene.
+    """
+    body: dict[str, list] = {}
+    with gtf.open(encoding="utf-8-sig", errors="replace") as fh:
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            f = line.split("\t")
+            if len(f) < 9 or f[2] not in ("exon", "CDS"):
+                continue
+            m = GENE_ID_RE.search(f[8])
+            if not m:
+                continue
+            start, end = int(f[3]) - 1, int(f[4])
+            rec = body.get(m.group(1))
+            if rec is None:
+                body[m.group(1)] = [f[0], f[6], start, end]
+            else:
+                rec[2] = min(rec[2], start)
+                rec[3] = max(rec[3], end)
+    idx: dict[tuple[str, str], list[tuple[int, int, str]]] = defaultdict(list)
+    for gid, (chrom, strand, start, end) in body.items():
+        idx[(chrom, strand)].append((start, end, gid))
+    for hits in idx.values():
+        hits.sort()
+    return idx
+
+
+def genes_overlapping(chrom: str, start: int, end: int, strand: str,
+                      idx: dict) -> list[str]:
+    """Gene IDs whose body overlaps [start, end) by at least 1 bp, same strand."""
+    return sorted({gid for gs, ge, gid in idx.get((chrom, strand), ())
+                   if gs < end and ge > start})
+
+
+def _contains_hairpin(chain: tuple | None, start: int, end: int) -> bool:
+    """True when a single exon of the transcript covers the whole hairpin."""
+    if not chain:
+        return False
+    return any(es <= start and end <= ee for es, ee in chain[2])
+
+
+def assign_scope(pairs: list[dict], chains: dict[str, tuple],
+                 gene_idx: dict | None) -> dict[str, tuple[str, str]]:
+    """Classify every locus as ``dedicated`` or ``shared`` with its partners.
+
+    A locus is *shared* when its hairpin overlaps a same-strand annotated gene
+    body, or when one of its supporting transcripts also carries another
+    locus's hairpin inside a single exon.  The two tests sit at different
+    levels on purpose: the gene test is genomic (the hairpin footprint), the
+    miRNA test has to be transcriptional, because two hairpins that share a pri
+    are separate intervals that never overlap on the genome.
+    """
+    loci: dict[str, tuple[str, str, int, int]] = {}
+    txs: dict[str, set[str]] = defaultdict(set)
+    for p in pairs:
+        loci.setdefault(p["hairpin_id"], (p["chrom"], p["strand"],
+                                         int(p["hp_start"]), int(p["hp_end"])))
+        txs[p["hairpin_id"]].add(p["transcript_id"])
+
+    hits: dict[str, set[str]] = defaultdict(set)
+    for locus, (chrom, strand, _s, _e) in loci.items():
+        for other, (c2, s2, o_start, o_end) in loci.items():
+            if other == locus or c2 != chrom or s2 != strand:
+                continue
+            if any(_contains_hairpin(chains.get(t), o_start, o_end)
+                   for t in txs[locus]):
+                hits[locus].add(other)
+    # the relation is written on both members: one transcript can carry a locus
+    # intact while only clipping the partner, and a cluster is still a cluster
+    for a in list(hits):
+        for b in list(hits[a]):
+            hits[b].add(a)
+
+    out: dict[str, tuple[str, str]] = {}
+    for locus, (chrom, strand, start, end) in loci.items():
+        genes = genes_overlapping(chrom, start, end, strand, gene_idx) if gene_idx else []
+        parts = [f"miRNA:{x}" for x in sorted(hits.get(locus, ()))]
+        parts += [f"gene:{x}" for x in genes]
+        out[locus] = ("shared", ";".join(parts)) if parts else ("dedicated", "-")
+    return out
+
 
 def read_classification(catalog_dir: Path) -> dict[str, str]:
     """SQANTI3 `*classification.txt`: isoform -> structural_category."""
@@ -162,7 +252,9 @@ def build_locus_rows(cfg: RunConfig, pairs: list[dict], intermed: list[dict],
                      counts: dict[str, dict[str, float]],
                      env_idx: dict | None, classes: dict[str, str],
                      fl: dict[str, int], backend: str,
-                     chains: dict[str, tuple]) -> list[dict]:
+                     chains: dict[str, tuple],
+                     scope: dict[str, tuple[str, str]] | None = None
+                     ) -> list[dict]:
     samples = sample_columns(expr_cols)
     groups = sorted({s["group"] for s in _samples_of(cfg) if s["group"]}) if cfg.rna else []
 
@@ -211,6 +303,10 @@ def build_locus_rows(cfg: RunConfig, pairs: list[dict], intermed: list[dict],
                                               row["hp_end"], row["strand"], env_idx)
         else:
             row["genomic_env"] = "unknown"
+
+        klass, partners = (scope or {}).get(locus, ("dedicated", "-"))
+        row["locus_class"] = klass
+        row["locus_partners"] = partners
 
         cats = {classes.get(i["transcript_id"], "NA") for i in items}
         row["class_code"] = "/".join(sorted(cats))
@@ -347,8 +443,13 @@ def stage_report(cfg: RunConfig, rep) -> None:
         for tid, tx in parse_gtf(catalog_gtf).items():
             chains[tid] = (tx.chrom, tx.strand, tuple(tx.exons))
 
+    gene_idx = None
+    if cfg.gtf and cfg.gtf.exists():
+        gene_idx = build_gene_index(cfg.gtf)
+    scope = assign_scope(pairs, chains, gene_idx)
+
     rows = build_locus_rows(cfg, pairs, intermed, expr_cols, expr, counts,
-                            env_idx, classes, fl, backend, chains)
+                            env_idx, classes, fl, backend, chains, scope)
     write_table(pri_dir / "pri_mirna.tsv", rows)
 
     pair_rows = [{"locus_id": p["hairpin_id"], **{k: p[k] for k in PAIR_COLS if k != "locus_id"}}

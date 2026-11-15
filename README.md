@@ -210,6 +210,8 @@ results/
 | `anchor_type` | dominant structure of the locus |
 | `evidence_level` | `L1_iso`, `L2_rnaseq` or `L3_annotation` |
 | `genomic_env` | `genic-exonic`, `genic-intronic`, `intergenic` or `unknown` |
+| `locus_class` | `dedicated` (miRNA-only) or `shared` (overlaps a gene, or shares its pri with another miRNA) |
+| `locus_partners` | partners of a shared locus, `gene:<id>` / `miRNA:<id>`, `;`-separated; `-` when dedicated |
 | `class_code` | SQANTI3 structural category |
 | `n_intermediates` | processing intermediates observed at the locus |
 | `pri_sum_tpm`, `pri_max_tpm`, `tpm_<group>` | locus-level expression (RNA-Seq runs only) |
